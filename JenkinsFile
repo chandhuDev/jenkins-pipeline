@@ -1,0 +1,76 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_HUB_TOKEN_CREDENTIALS = credentials('docker-credentials')
+        DOCKER_IMAGE_NAME = 'jenkins-pipeline:v1.0'
+    }
+    parameters {
+     stashedFile  'DOCKER_FILE'
+     stashedFile  'COMMANDS_FILE'
+    }
+
+    stages {
+        stage('Hello') {
+            steps {
+                echo 'Hello World'
+            }
+        }
+        
+        stage('Build docker image') {
+            steps {
+                script{
+                    unstash 'DOCKER_FILE'
+                    unstash 'COMMANDS_FILE'
+                    
+                    def dockerfilePath = 'DOCKER_FILE'
+                    def commandsFilePath = 'COMMANDS_FILE'
+                    
+                    sh 'cat DOCKER_FILE '
+                    sh 'cat COMMANDS_FILE '
+                    
+                    sh "cp DOCKER_FILE Dockerfile"
+                    sh "cp COMMANDS_FILE commands.sh"
+                    
+                    sh 'cat dockerfilePath'
+                    sh 'cat commandsFilePath'
+                    
+                    withRegistry([string(credentialsId = env.DOCKER_HUB_TOKEN_CREDENTIALS, variable = 'DOCKER_CONFIG')]) {
+                        sh "docker login -u chandhudev0 -p  ${DOCKER_CONFIG}"
+                        sh "docker build -t ${env.DOCKER_IMAGE_NAME} ."
+                        sh "docker push ${env.DOCKER_IMAGE_NAME}"
+                        echo "docker uilt successfully"
+                    }
+                    
+                }
+            }
+        }
+        
+        stage('Show Docker image') {
+            steps {
+                script{
+                    withRegistry([string(credentialsId = env.DOCKER_HUB_TOKEN_CREDENTIALS, variable = 'DOCKER_CONFIG')]) {
+                        sh "docker pull ${env.DOCKER_IMAGE_NAME}"
+                        sh "docker images"
+                        sh "docker run -it -d --name chandhu -p 8082:8080 ${env.DOCKER_IMAGE_NAME}"
+                        sh "docker inspect ${env.DOCKER_IMAGE_NAME}"
+                    }
+                }
+                    
+            }
+        }
+        
+        stage('show env variable') {
+            steps {
+                sh "sudo docker exec chandhu cat /var/jenkins_home/secrets/initialAdminPassword"
+            }
+        }
+    }
+    post {
+        always {
+            sh '''docker rmi ${env.DOCKER_IMAGE_NAME}
+                  rm -f Dockerfile commands.sh
+            '''
+        }
+    }
+}

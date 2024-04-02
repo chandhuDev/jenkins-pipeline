@@ -1,13 +1,19 @@
 pipeline {
-    agent any
+    agent {
+        docker {
+            image 'docker:latest'
+            args '--user root -v /var/run/docker.sock:/var/run/docker.sock' // mount Docker socket to access the host's Docker daemon
+        }
+    }
     
     environment {
-        DOCKER_HUB_TOKEN_CREDENTIALS = credentials('docker-credentials')
+        DOCKER_HUB_TOKEN_CREDENTIALS = credentials('docker-cred')
         DOCKER_IMAGE_NAME = 'jenkins-pipeline:v1.0'
     }
+    
     parameters {
-     stashedFile  'DOCKER'
-     stashedFile  'COMMANDS'
+        stashedFile  'DOCKER'
+        stashedFile  'COMMANDS'
     }
 
     stages {
@@ -29,6 +35,9 @@ pipeline {
                     sh "cp DOCKER Dockerfile"
                     sh "cp COMMANDS commands.sh"
                     
+                    sh "sed -i 's/\r$//' commands.sh"
+"
+                    
                     sh 'cat Dockerfile'
                     sh 'cat commands.sh'
                     
@@ -37,12 +46,17 @@ pipeline {
                     
                     //sh "cat $DOCKER_HUB_TOKEN_CREDENTIALS"
                     
-                    docker.withRegistry('https://index.docker.io/v1/', "docker-credentials") {
+                    
+                    docker.withRegistry('https://index.docker.io/v1/', "docker-cred") {
+                         
+                        def dockerImage = docker.build("$DOCKER_IMAGE_NAME")
                         
-                        sh "docker build -t ${DOCKER_IMAGE_NAME} ."
+                        dockerImage.push('latest')
                         
-                        docker.image("${DOCKER_IMAGE_NAME}").push()
                     }
+                    
+                    sh "docker inspect $DOCKER_IMAGE_NAME"
+                    
                     sh "docker ps"
                     echo "docker built successfully"
                     
@@ -53,27 +67,28 @@ pipeline {
         stage('Show Docker image') {
             steps {
                script{
-                   
-                docker.withRegistry('https://index.docker.io/v1/', "docker-credentials") {
-                    docker.image("${DOCKER_IMAGE_NAME}").run('-d -p 8081:8080 --name ${DOCKER_IMAGE_NAME}')
+                   docker.withRegistry('https://index.docker.io/v1/', "docker-cred") {
+                        docker.image("${DOCKER_IMAGE_NAME}").run('-d -p 8081:8080 --name ${DOCKER_IMAGE_NAME}')
+                        
+                    }
                 }
-               }
                 echo "show docker image"
             }
         }
         
         stage('show env variable') {
             steps {
+                sh "docker ps -aq"
                 sh "sudo docker exec ${DOCKER_IMAGE_NAME} cat /var/jenkins_home/secrets/initialAdminPassword"
                 echo "environment show variable"
             }
         }
     }
-    // post {
-    //     always {
-    //         sh '''docker rmi ${DOCKER_IMAGE_NAME}
-    //               rm -f Dockerfile commands.sh
-    //         '''
-    //     }
-    // }
+    post {
+        always {
+            sh '''docker rmi ${DOCKER_IMAGE_NAME}
+                  rm -f Dockerfile commands.sh
+            '''
+        }
+    }
 }
